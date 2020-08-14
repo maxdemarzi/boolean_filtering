@@ -26,18 +26,18 @@ Stored Procedures:
     // One Filter
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {property: "color", values: ["Blue"], not: false}
-    ]})
+    ]}, 10)
     
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {property: "status", values: ["Unfulfilled"], not: false},
         {property: "warehouse", values: ["Warehouse 3"], not: false}
-    ]});
+    ]}, 10);
 
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {property: "status", values: ["Unfulfilled"], not: false},
         {property: "warehouse", values: ["Warehouse 3"], not: false},
         {property: "online", values: [true], not: false}
-    ]});
+    ]}, 10);
 
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {or:[{and:[
@@ -47,15 +47,21 @@ Stored Procedures:
                 {property: "online", values: [true], not: false}
             ]}
         ]}
-    ]});
+    ]}, 10);
 
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {property: "status", values: ["Unfulfilled"], not: false},
         {property: "warehouse", values: ["Warehouse 3"], not: false}
         {property: "online", values: [true], not: true}
-    ]});
+    ]}, 10);
 
-
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+            {property: "status", values: ["Unfulfilled"], not: false},
+            {property: "warehouse", values: ["Warehouse 3"], not: false},
+            {property: "ordered_date", values: [date('2020-08-09'), date('2020-08-10'), date('2020-08-11')], not: false}
+        ]}, 10);
+    
+    
 Sample Data:
 
     WITH 
