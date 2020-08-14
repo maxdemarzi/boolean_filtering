@@ -68,7 +68,7 @@ public class Procedures {
 
         //initialize the graph
         if (graph == null) { graph = db; }
-        
+
         List<Node> results;
         long size = 0L;
 
