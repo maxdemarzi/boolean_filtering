@@ -26,6 +26,8 @@ public class Procedures {
     @Context
     public GraphDatabaseService db;
 
+    @Context public Transaction transaction;
+
     // This field gives us a static GraphDatabaseService to use within our cache
     static GraphDatabaseService graph;
 
@@ -51,8 +53,6 @@ public class Procedures {
             while(nodes.hasNext()) {
                 bitmap.add(nodes.next().getId());
             }
-            tx.commit();
-
         }
         return bitmap;
     }
@@ -68,124 +68,118 @@ public class Procedures {
 
         //initialize the graph
         if (graph == null) { graph = db; }
-
+        
         List<Node> results;
         long size = 0L;
 
-        // Start a transaction
-        try (Transaction tx = db.beginTx()) {
+        Label label = Label.label(labelName);
 
-            Label label = Label.label(labelName);
+        Roaring64NavigableMap combinedNodeIds = new Roaring64NavigableMap();
 
-            Roaring64NavigableMap combinedNodeIds = new Roaring64NavigableMap();
+        MutableBiMap<HashMap<String, Object>, Integer> expressions = new HashBiMap<>();
+        String formula = getFormula(query, "", expressions);
+        BiMap<Integer, HashMap<String, Object>> inverse = expressions.inverse();
 
-            MutableBiMap<HashMap<String, Object>, Integer> expressions = new HashBiMap<>();
-            String formula = getFormula(query, "", expressions);
-            BiMap<Integer, HashMap<String, Object>> inverse = expressions.inverse();
+        //log.debug("Formula: " + formula);
 
-            //log.debug("Formula: " + formula);
+        // Use the expression to find the required paths
+        BooleanExpression boEx = new BooleanExpression(formula);
+        boEx.doTabulationMethod();
+        boEx.doQuineMcCluskey();
+        boEx.doPetricksMethod();
 
-            // Use the expression to find the required paths
-            BooleanExpression boEx = new BooleanExpression(formula);
-            boEx.doTabulationMethod();
-            boEx.doQuineMcCluskey();
-            boEx.doPetricksMethod();
+        for (String path : boEx.getPathExpressions()) {
+            // We will collect the valid node ids for this path here
+            Roaring64NavigableMap nodeIds = new Roaring64NavigableMap();
 
-            for (String path : boEx.getPathExpressions()) {
-                // We will collect the valid node ids for this path here
-                Roaring64NavigableMap nodeIds = new Roaring64NavigableMap();
+            // Figure out which filters are a "must have" and which are a "must not"
+            String[] ids = path.split("[!&]");
+            char[] rels = path.replaceAll("[^&^!]", "").toCharArray();
 
-                // Figure out which filters are a "must have" and which are a "must not"
-                String[] ids = path.split("[!&]");
-                char[] rels = path.replaceAll("[^&^!]", "").toCharArray();
+            Set<String> mustHave = new HashSet<>();
+            Set<String> mustNot = new HashSet<>();
 
-                Set<String> mustHave = new HashSet<>();
-                Set<String> mustNot = new HashSet<>();
-
-                // Using the ANDs and NOTs, figure out what we must have and must not
-                if (path.startsWith("!")) {
-                    mustNot.add(ids[0]);
-                } else {
-                    mustHave.add(ids[0]);
-                }
-
-                for (int i = 0; i < rels.length; i++) {
-                    if (rels[i] == '&') {
-                        mustHave.add(ids[1 + i]);
-                    } else {
-                        mustNot.add(ids[1 + i]);
-                    }
-                }
-
-                // Get the bitmaps of node ids from each filter into an array
-                ArrayList<Pair<Roaring64NavigableMap, Long>> filters = new ArrayList<>();
-
-                for (String item : mustHave) {
-                    Map<String, Object> filter = inverse.get(Integer.valueOf(item));
-                    MutableTriple<Label, String, Object> key = MutableTriple.of(label, (String)filter.get("property"), null);
-
-                    // Since the values can be inside an array, we are treating these as belonging to any in the array
-                    ArrayList<Object> values = (ArrayList<Object>) filter.get("values");
-                    Roaring64NavigableMap filterValueIds = new Roaring64NavigableMap();
-                    for (Object value : values) {
-                        key.setRight(value);
-                        // Join them together
-                        Roaring64NavigableMap dimensionValueIds = valueCache.get(key);
-                        if (dimensionValueIds != null) {
-                            filterValueIds.or(dimensionValueIds);
-                        }
-                    }
-                    filters.add(Pair.of(filterValueIds, filterValueIds.getLongCardinality()));
-                }
-
-                // Sort bitmaps in Ascending order by cardinality
-                filters.sort(Comparator.comparing(Pair::other));
-
-                // Initialize the smallest bitmap as our starting point
-                if (filters.size() > 0) {
-                    nodeIds.or(filters.remove(0).first());
-                }
-
-                // AND the rest of the bitmaps
-                for (Pair<Roaring64NavigableMap, Long> pair : filters) {
-                    nodeIds.and(pair.first());
-                }
-
-                // now lets remove the must nots
-                for (String item : mustNot) {
-                    Map<String, Object> filter = inverse.get(Integer.valueOf(item));
-                    MutableTriple<Label, String, Object> key = MutableTriple.of(label, (String)filter.get("property"), null);
-
-                    // Since the values can be inside an array, we are treating these as belonging to any in the array
-                    ArrayList<String> filterValues = (ArrayList<String>) filter.get("filterValues");
-                    Roaring64NavigableMap filterValueIds = new Roaring64NavigableMap();
-                    for (String value : filterValues) {
-                        key.setRight(value);
-                        // Join them together
-                        Roaring64NavigableMap dimensionValueIds = valueCache.get(key);
-                        if (dimensionValueIds != null) {
-                            filterValueIds.or(dimensionValueIds);
-                        }
-                    }
-                    // AND NOT any excluded node ids
-                    nodeIds.andNot(filterValueIds);
-                }
-
-                // add the node ids found via these set of filters
-                combinedNodeIds.or(nodeIds);
+            // Using the ANDs and NOTs, figure out what we must have and must not
+            if (path.startsWith("!")) {
+                mustNot.add(ids[0]);
+            } else {
+                mustHave.add(ids[0]);
             }
 
-            // Return nodes AND the total count of nodes found.
-            size = combinedNodeIds.getLongCardinality();
+            for (int i = 0; i < rels.length; i++) {
+                if (rels[i] == '&') {
+                    mustHave.add(ids[1 + i]);
+                } else {
+                    mustNot.add(ids[1 + i]);
+                }
+            }
 
-            results = StreamSupport.stream(Spliterators.spliteratorUnknownSize(
-                    combinedNodeIds.iterator(), Spliterator.CONCURRENT), false)
-                    .map(tx::getNodeById)
-                    .skip(offset).limit(limit)
-                    .collect(Collectors.toList());
+            // Get the bitmaps of node ids from each filter into an array
+            ArrayList<Pair<Roaring64NavigableMap, Long>> filters = new ArrayList<>();
 
-            tx.commit();
+            for (String item : mustHave) {
+                Map<String, Object> filter = inverse.get(Integer.valueOf(item));
+                MutableTriple<Label, String, Object> key = MutableTriple.of(label, (String)filter.get("property"), null);
+
+                // Since the values can be inside an array, we are treating these as belonging to any in the array
+                ArrayList<Object> values = (ArrayList<Object>) filter.get("values");
+                Roaring64NavigableMap filterValueIds = new Roaring64NavigableMap();
+                for (Object value : values) {
+                    key.setRight(value);
+                    // Join them together
+                    Roaring64NavigableMap dimensionValueIds = valueCache.get(key);
+                    if (dimensionValueIds != null) {
+                        filterValueIds.or(dimensionValueIds);
+                    }
+                }
+                filters.add(Pair.of(filterValueIds, filterValueIds.getLongCardinality()));
+            }
+
+            // Sort bitmaps in Ascending order by cardinality
+            filters.sort(Comparator.comparing(Pair::other));
+
+            // Initialize the smallest bitmap as our starting point
+            if (filters.size() > 0) {
+                nodeIds.or(filters.remove(0).first());
+            }
+
+            // AND the rest of the bitmaps
+            for (Pair<Roaring64NavigableMap, Long> pair : filters) {
+                nodeIds.and(pair.first());
+            }
+
+            // now lets remove the must nots
+            for (String item : mustNot) {
+                Map<String, Object> filter = inverse.get(Integer.valueOf(item));
+                MutableTriple<Label, String, Object> key = MutableTriple.of(label, (String)filter.get("property"), null);
+
+                // Since the values can be inside an array, we are treating these as belonging to any in the array
+                ArrayList<String> filterValues = (ArrayList<String>) filter.get("filterValues");
+                Roaring64NavigableMap filterValueIds = new Roaring64NavigableMap();
+                for (String value : filterValues) {
+                    key.setRight(value);
+                    // Join them together
+                    Roaring64NavigableMap dimensionValueIds = valueCache.get(key);
+                    if (dimensionValueIds != null) {
+                        filterValueIds.or(dimensionValueIds);
+                    }
+                }
+                // AND NOT any excluded node ids
+                nodeIds.andNot(filterValueIds);
+            }
+
+            // add the node ids found via these set of filters
+            combinedNodeIds.or(nodeIds);
         }
+
+        // Return nodes AND the total count of nodes found.
+        size = combinedNodeIds.getLongCardinality();
+
+        results = StreamSupport.stream(Spliterators.spliteratorUnknownSize(
+                combinedNodeIds.iterator(), Spliterator.CONCURRENT), false)
+                .map(transaction::getNodeById)
+                .skip(offset).limit(limit)
+                .collect(Collectors.toList());
 
         return Stream.of(new SizeAndNodeResult(results, size));
     }
