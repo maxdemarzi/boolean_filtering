@@ -24,8 +24,38 @@ Stored Procedures:
     CALL com.maxdemarzi.boolean.filter(label, query, limit, offset); 
     
     // One Filter
-    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[{property: "color", values: ["Blue"], not: false}]})
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+        {property: "color", values: ["Blue"], not: false}
+    ]})
     
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+        {property: "status", values: ["Unfulfilled"], not: false},
+        {property: "warehouse", values: ["Warehouse 3"], not: false}
+    ]});
+
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+        {property: "status", values: ["Unfulfilled"], not: false},
+        {property: "warehouse", values: ["Warehouse 3"], not: false},
+        {property: "online", values: [true], not: false}
+    ]});
+
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+        {or:[{and:[
+                {property: "status", values: ["Unfulfilled"], not: false},
+                {property: "warehouse", values: ["Warehouse 3"], not: false}
+            ]},{and:[
+                {property: "online", values: [true], not: false}
+            ]}
+        ]}
+    ]});
+
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+        {property: "status", values: ["Unfulfilled"], not: false},
+        {property: "warehouse", values: ["Warehouse 3"], not: false}
+        {property: "online", values: [true], not: true}
+    ]});
+
+
 Sample Data:
 
     WITH 

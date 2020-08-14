@@ -44,13 +44,41 @@ public class BooleanFilterTests {
             Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[{property: 'color', values: ['Blue'], not: false}]});");
 
             // Then I should get what I expect
-            //assertTrue(result.hasNext());
             Record record = result.single();
             assertEquals(111L, record.get("size").asLong());
             ArrayList<Node> results = new ArrayList<>(record.get("nodes").asList(Value::asNode));
             assertEquals(50, results.size());
         }
     }
+
+    @Test
+    void shouldBooleanFilterWithNots() {
+        // In a try-block, to make sure we close the driver after the test
+        try(Driver driver = GraphDatabase.driver( neo4j.boltURI() , Config.builder().withoutEncryption().build())) {
+            // Given I've started Neo4j with the procedure
+            //       which my 'neo4j' rule above does.
+            Session session = driver.session();
+
+            // When I use the procedure
+            Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[ " +
+                "{property: 'status', values: ['Unfulfilled'], not: false}," +
+                "{property: 'warehouse', values: ['Warehouse 3'], not: false}," +
+                "{property: 'online', values: [true], not: true} ]})");
+
+            // Then I should get what I expect
+            Record record = result.single();
+            assertEquals(43L, record.get("size").asLong());
+            ArrayList<Node> results = new ArrayList<>(record.get("nodes").asList(Value::asNode));
+            assertEquals(43, results.size());
+        }
+    }
+    /*
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+        {property: "status", values: ["Unfulfilled"], not: false},
+        {property: "warehouse", values: ["Warehouse 3"], not: false},
+        {property: "online", values: [true], not: true}
+    ]})
+     */
 
     private static final String MODEL_STATEMENT = "WITH  " +
             "[\"Unfulfilled\", \"Scheduled\", \"Shipped\", \"Shipped\", \"Shipped\", \"Shipped\", \"Returned\"] AS statuses, " +

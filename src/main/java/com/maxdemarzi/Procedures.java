@@ -154,9 +154,9 @@ public class Procedures {
                 MutableTriple<Label, String, Object> key = MutableTriple.of(label, (String)filter.get("property"), null);
 
                 // Since the values can be inside an array, we are treating these as belonging to any in the array
-                ArrayList<String> filterValues = (ArrayList<String>) filter.get("filterValues");
+                ArrayList<Object> filterValues = (ArrayList<Object>) filter.get("values");
                 Roaring64NavigableMap filterValueIds = new Roaring64NavigableMap();
-                for (String value : filterValues) {
+                for (Object value : filterValues) {
                     key.setRight(value);
                     // Join them together
                     Roaring64NavigableMap dimensionValueIds = valueCache.get(key);
