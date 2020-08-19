@@ -52,6 +52,7 @@ Stored Procedures:
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {property: "status", values: ["Unfulfilled"], not: false},
         {property: "warehouse", values: ["Warehouse 3"], not: false}
+        {property: "season", values: ["Fall*"], not: false}," +
         {property: "online", values: [true], not: true}
     ]}, 10);
 

@@ -63,13 +63,14 @@ public class BooleanFilterTests {
             Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[ " +
                 "{property: 'status', values: ['Unfulfilled'], not: false}," +
                 "{property: 'warehouse', values: ['Warehouse 3'], not: false}," +
+                "{property: 'season', values: ['Fall*'], not: false}," +
                 "{property: 'online', values: [true], not: true} ]})");
 
             // Then I should get what I expect
             Record record = result.single();
-            assertEquals(43L, record.get("size").asLong());
+            assertEquals(29L, record.get("size").asLong());
             ArrayList<Node> results = new ArrayList<>(record.get("nodes").asList(Value::asNode));
-            assertEquals(43, results.size());
+            assertEquals(29, results.size());
         }
     }
     /*

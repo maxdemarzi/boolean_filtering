@@ -47,9 +47,29 @@ public class Procedures {
         Label label = key.getLeft();
         String property = key.getMiddle();
         Object value = key.getRight();
+        String valueAsString = value.toString();
+
+        StringSearchMode ssm = StringSearchMode.EXACT;
+        if(valueAsString.startsWith("*")) {
+            if(valueAsString.endsWith("*")) {
+                ssm = StringSearchMode.CONTAINS;
+                valueAsString = valueAsString.substring(1, valueAsString.length() - 1);
+            } else {
+                ssm = StringSearchMode.SUFFIX;
+                valueAsString = valueAsString.substring(1);
+            }
+        } else if(valueAsString.endsWith("*")) {
+            ssm = StringSearchMode.PREFIX;
+            valueAsString = valueAsString.substring(0, valueAsString.length() - 1);
+        }
 
         try (Transaction tx = graph.beginTx()) {
-            ResourceIterator<Node> nodes = tx.findNodes(label, property, value);
+            ResourceIterator<Node> nodes;
+            if (ssm.equals(StringSearchMode.EXACT)) {
+                nodes = tx.findNodes(label, property, value);
+            } else {
+                nodes = tx.findNodes(label, property, valueAsString, ssm);
+            }
             while(nodes.hasNext()) {
                 bitmap.add(nodes.next().getId());
             }
