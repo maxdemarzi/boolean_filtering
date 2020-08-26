@@ -11,13 +11,25 @@ import org.eclipse.collections.api.bimap.MutableBiMap;
 import org.eclipse.collections.impl.bimap.mutable.HashBiMap;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.*;
+import org.neo4j.internal.helpers.collection.Iterators;
 import org.neo4j.internal.helpers.collection.Pair;
+import org.neo4j.internal.kernel.api.*;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
+import org.neo4j.internal.schema.*;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.api.KernelTransaction;
+import org.neo4j.kernel.impl.coreapi.InternalTransaction;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
+import org.neo4j.values.storable.Value;
 import org.roaringbitmap.longlong.Roaring64NavigableMap;
 
+import java.text.NumberFormat;
+import java.text.ParseException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.*;
 
 public class Procedures {
@@ -36,6 +48,23 @@ public class Procedures {
     @Context
     public Log log;
 
+    static Log logger;
+
+    private static final String leftBracketOrParen = "[(|\\[]";
+    private static final String righttBracketOrParen = "[)|\\]]";
+    private static final String numberPattern = "-?\\d*\\.{0,1}\\d+";
+    private static final String ISODatePattern = "[0-9]{4}-(((0[13578]|(10|12))-(0[1-9]|[1-2][0-9]|3[0-1]))|(02-(0[1-9]|[1-2][0-9]))|((0[469]|11)-(0[1-9]|[1-2][0-9]|30)))";
+
+    //(^[\(|\[])(-?\d*\.{0,1}\d+)?,(-?\d*\.{0,1}\d+)?([\)|\]])$
+    private static final Pattern numberRange = Pattern.compile("(^" + leftBracketOrParen + ")(" + numberPattern + ")?,(" + numberPattern + ")?(" + righttBracketOrParen +")$");
+    private static final Pattern dateRange = Pattern.compile("(^" + leftBracketOrParen + ")(" + ISODatePattern + ")?,(" + ISODatePattern + ")?(" + righttBracketOrParen +")$");
+    // A square bracket ([ ]) indicates that the range is inclusive on that side; a parenthesis (( )) means it is exclusive
+    // (a,b) means a < x < b
+    // [a,b] means a <= x <= b
+    // (a,b] means a < x <= b
+    // a or b can be null
+
+
     // This cache stores the node ids by Dimension and Value
     public static final LoadingCache<Triple<Label, String, Object>, Roaring64NavigableMap> valueCache = Caffeine.newBuilder()
             .expireAfterAccess(60, TimeUnit.MINUTES)
@@ -49,6 +78,59 @@ public class Procedures {
         Object value = key.getRight();
         String valueAsString = value.toString();
 
+        Matcher m = numberRange.matcher(valueAsString);
+        if (m.matches()) {
+            try (Transaction tx = graph.beginTx()) {
+
+                Number lowerBound = null;
+                Number upperBound = null;
+                boolean includeUpper = true;
+                boolean includeLower = true;
+
+                if (m.group(2) != null) {
+                    lowerBound = NumberFormat.getInstance().parse(m.group(2));
+                }
+                if (m.group(3) != null) {
+                    upperBound = NumberFormat.getInstance().parse(m.group(3));
+                }
+
+                if (m.group(1).equals("(")) {
+                    includeLower = false;
+                }
+                if (m.group(4).equals(")")) {
+                    includeUpper = false;
+                }
+
+                KernelTransaction ktx = ((InternalTransaction) tx).kernelTransaction();
+                TokenRead tokenRead = ktx.tokenRead();
+                SchemaRead schemaRead = ktx.schemaRead();
+                Read read = ktx.dataRead();
+                CursorFactory cursors = ktx.cursors();
+
+                int labelId = tokenRead.nodeLabel(label.name());
+                int propertyKeyId = tokenRead.propertyKey(property);
+
+                LabelSchemaDescriptor schema = SchemaDescriptor.forLabel(labelId, propertyKeyId);
+                IndexDescriptor indexDescriptor = Iterators.single(schemaRead.index(schema));
+                IndexReadSession indexSession = read.indexReadSession(indexDescriptor);
+                IndexQuery.RangePredicate<?> predicate =  IndexQuery.range(propertyKeyId, lowerBound, includeLower, upperBound, includeUpper);
+
+                try (NodeValueIndexCursor cursor = cursors.allocateNodeValueIndexCursor(PageCursorTracer.NULL)) {
+                    read.nodeIndexSeek(indexSession, cursor, IndexQueryConstraints.unconstrained(), predicate);
+                    while (cursor.next()) {
+                        bitmap.add(cursor.nodeReference());
+                    }
+                }
+
+            } catch(Exception exception ){
+                logger.error(Arrays.stream(exception.getStackTrace())
+                        .map(Objects::toString)
+                        .collect(Collectors.joining("\n")));
+            }
+            return bitmap;
+        }
+
+        // Exact or Contains String Search
         StringSearchMode ssm = StringSearchMode.EXACT;
         if(valueAsString.startsWith("*")) {
             if(valueAsString.endsWith("*")) {
@@ -87,7 +169,10 @@ public class Procedures {
             @Name(value = "offset", defaultValue = "0") Long offset) {
 
         //initialize the graph
-        if (graph == null) { graph = db; }
+        if (graph == null) {
+            graph = db;
+            logger = log;
+        }
 
         List<Node> results;
         long size = 0L;

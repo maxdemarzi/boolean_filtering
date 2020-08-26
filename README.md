@@ -28,6 +28,23 @@ Stored Procedures:
         {property: "color", values: ["Blue"], not: false}
     ]}, 10)
     
+    // Contains Filter
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+         {property: 'season', values: ['Fall*'], not: false}
+    ]}, 10)
+    
+    // Range Filter 60400 < postal <= 60403
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+            {property: 'postal', values: ['(60400,60403]'], not: false}
+    ]}, 10)
+    
+    // Range Filter 19.99 < amount
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+            {property: 'amount', values: ['(19.99,]'], not: false}
+    ]}, 10)
+    
+    // Multiple Filters
+    
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
         {property: "status", values: ["Unfulfilled"], not: false},
         {property: "warehouse", values: ["Warehouse 3"], not: false}

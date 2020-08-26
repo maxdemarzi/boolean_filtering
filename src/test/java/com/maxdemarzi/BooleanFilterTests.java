@@ -73,13 +73,49 @@ public class BooleanFilterTests {
             assertEquals(29, results.size());
         }
     }
-    /*
-    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
-        {property: "status", values: ["Unfulfilled"], not: false},
-        {property: "warehouse", values: ["Warehouse 3"], not: false},
-        {property: "online", values: [true], not: true}
-    ]})
-     */
+
+    @Test
+    void shouldBooleanFilterRange() {
+        // In a try-block, to make sure we close the driver after the test
+        try(Driver driver = GraphDatabase.driver( neo4j.boltURI() , Config.builder().withoutEncryption().build())) {
+            // Given I've started Neo4j with the procedure
+            //       which my 'neo4j' rule above does.
+            Session session = driver.session();
+
+            session.run("CREATE INDEX ON :Order(postal)");
+
+            // When I use the procedure
+            Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[{property: 'postal', values: ['(60400,60403]'], not: false}]});");
+
+            // Then I should get what I expect
+            Record record = result.single();
+            assertEquals(168L, record.get("size").asLong());
+            ArrayList<Node> results = new ArrayList<>(record.get("nodes").asList(Value::asNode));
+            assertEquals(50, results.size());
+        }
+    }
+
+    @Test
+    void shouldBooleanFilterRangeAmount() {
+        // In a try-block, to make sure we close the driver after the test
+        try(Driver driver = GraphDatabase.driver( neo4j.boltURI() , Config.builder().withoutEncryption().build())) {
+            // Given I've started Neo4j with the procedure
+            //       which my 'neo4j' rule above does.
+            Session session = driver.session();
+
+            session.run("CREATE INDEX ON :Order(amount)");
+
+            // When I use the procedure
+            Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[{property: 'amount', values: ['(19.99,]'], not: false}]});");
+
+            // Then I should get what I expect
+            Record record = result.single();
+            assertEquals(1000L, record.get("size").asLong());
+            assertTrue(record.get("size").asLong() > 0);
+            ArrayList<Node> results = new ArrayList<>(record.get("nodes").asList(Value::asNode));
+            assertEquals(50, results.size());
+        }
+    }
 
     private static final String MODEL_STATEMENT = "WITH  " +
             "[\"Unfulfilled\", \"Scheduled\", \"Shipped\", \"Shipped\", \"Shipped\", \"Shipped\", \"Returned\"] AS statuses, " +
