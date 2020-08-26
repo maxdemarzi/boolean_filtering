@@ -7,6 +7,7 @@ import org.neo4j.harness.Neo4j;
 import org.neo4j.harness.Neo4jBuilders;
 
 import java.util.ArrayList;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,7 +76,7 @@ public class BooleanFilterTests {
     }
 
     @Test
-    void shouldBooleanFilterRange() {
+    void shouldBooleanFilterRange() throws InterruptedException {
         // In a try-block, to make sure we close the driver after the test
         try(Driver driver = GraphDatabase.driver( neo4j.boltURI() , Config.builder().withoutEncryption().build())) {
             // Given I've started Neo4j with the procedure
@@ -83,6 +84,8 @@ public class BooleanFilterTests {
             Session session = driver.session();
 
             session.run("CREATE INDEX ON :Order(postal)");
+            // Wait a few seconds to make sure index is populated
+            TimeUnit.SECONDS.sleep(3);
 
             // When I use the procedure
             Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[{property: 'postal', values: ['(60400,60403]'], not: false}]});");
@@ -96,7 +99,7 @@ public class BooleanFilterTests {
     }
 
     @Test
-    void shouldBooleanFilterRangeAmount() {
+    void shouldBooleanFilterRangeAmount() throws InterruptedException {
         // In a try-block, to make sure we close the driver after the test
         try(Driver driver = GraphDatabase.driver( neo4j.boltURI() , Config.builder().withoutEncryption().build())) {
             // Given I've started Neo4j with the procedure
@@ -104,6 +107,9 @@ public class BooleanFilterTests {
             Session session = driver.session();
 
             session.run("CREATE INDEX ON :Order(amount)");
+            // Wait a few seconds to make sure index is populated
+            TimeUnit.SECONDS.sleep(3);
+
 
             // When I use the procedure
             Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[{property: 'amount', values: ['(19.99,]'], not: false}]});");
