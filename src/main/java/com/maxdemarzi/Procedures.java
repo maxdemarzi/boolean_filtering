@@ -14,18 +14,16 @@ import org.neo4j.graphdb.*;
 import org.neo4j.internal.helpers.collection.Iterators;
 import org.neo4j.internal.helpers.collection.Pair;
 import org.neo4j.internal.kernel.api.*;
-import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
 import org.neo4j.internal.schema.*;
 import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.KernelTransaction;
 import org.neo4j.kernel.impl.coreapi.InternalTransaction;
 import org.neo4j.logging.Log;
 import org.neo4j.procedure.*;
-import org.neo4j.values.storable.Value;
+import org.neo4j.values.storable.*;
 import org.roaringbitmap.longlong.Roaring64NavigableMap;
 
 import java.text.NumberFormat;
-import java.text.ParseException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -50,20 +48,13 @@ public class Procedures {
 
     static Log logger;
 
+    // Check Java Regex : https://www.freeformatter.com/java-regex-tester.html
     private static final String leftBracketOrParen = "[(|\\[]";
-    private static final String righttBracketOrParen = "[)|\\]]";
+    private static final String rightBracketOrParen = "[)|\\]]";
     private static final String numberPattern = "-?\\d*\\.{0,1}\\d+";
     private static final String ISODatePattern = "[0-9]{4}-(((0[13578]|(10|12))-(0[1-9]|[1-2][0-9]|3[0-1]))|(02-(0[1-9]|[1-2][0-9]))|((0[469]|11)-(0[1-9]|[1-2][0-9]|30)))";
-
-    //(^[\(|\[])(-?\d*\.{0,1}\d+)?,(-?\d*\.{0,1}\d+)?([\)|\]])$
-    private static final Pattern numberRange = Pattern.compile("(^" + leftBracketOrParen + ")(" + numberPattern + ")?,(" + numberPattern + ")?(" + righttBracketOrParen +")$");
-    private static final Pattern dateRange = Pattern.compile("(^" + leftBracketOrParen + ")(" + ISODatePattern + ")?,(" + ISODatePattern + ")?(" + righttBracketOrParen +")$");
-    // A square bracket ([ ]) indicates that the range is inclusive on that side; a parenthesis (( )) means it is exclusive
-    // (a,b) means a < x < b
-    // [a,b] means a <= x <= b
-    // (a,b] means a < x <= b
-    // a or b can be null
-
+    private static final Pattern number = Pattern.compile(numberPattern);
+    private static final Pattern numberOrDateRange =  Pattern.compile("(^" + leftBracketOrParen + ")(" + numberPattern + "|" + ISODatePattern + ")?,(" + numberPattern + "|" + ISODatePattern + ")?(" + rightBracketOrParen +")$");
 
     // This cache stores the node ids by Dimension and Value
     public static final LoadingCache<Triple<Label, String, Object>, Roaring64NavigableMap> valueCache = Caffeine.newBuilder()
@@ -78,26 +69,44 @@ public class Procedures {
         Object value = key.getRight();
         String valueAsString = value.toString();
 
-        Matcher m = numberRange.matcher(valueAsString);
+        // Number or date ranges
+        Matcher m = numberOrDateRange.matcher(valueAsString);
         if (m.matches()) {
             try (Transaction tx = graph.beginTx()) {
 
-                Number lowerBound = null;
-                Number upperBound = null;
+                Value lowerBound = null;
+                Value upperBound = null;
                 boolean includeUpper = true;
                 boolean includeLower = true;
 
-                if (m.group(2) != null) {
-                    lowerBound = NumberFormat.getInstance().parse(m.group(2));
+                String from = m.group(2);
+                String to = m.group(13);
+
+                if (from != null) {
+                    if (number.matcher(from).matches()) {
+                        lowerBound = Values.numberValue(NumberFormat.getInstance().parse(from));
+                    } else {
+                        lowerBound = DateValue.parse(from);
+                    }
                 }
-                if (m.group(3) != null) {
-                    upperBound = NumberFormat.getInstance().parse(m.group(3));
+                if (to != null) {
+                    if (number.matcher(to).matches()) {
+                        upperBound = Values.numberValue(NumberFormat.getInstance().parse(to));
+                    } else {
+                        upperBound = DateValue.parse(to);
+                    }
                 }
+
+                // A square bracket ([ ]) indicates that the range is inclusive on that side; a parenthesis (( )) means it is exclusive
+                // (a,b) means a < x < b
+                // [a,b] means a <= x <= b
+                // (a,b] means a < x <= b
+                // a or b can be null
 
                 if (m.group(1).equals("(")) {
                     includeLower = false;
                 }
-                if (m.group(4).equals(")")) {
+                if (m.group(24).equals(")")) {
                     includeUpper = false;
                 }
 

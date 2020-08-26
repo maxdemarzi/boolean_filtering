@@ -123,6 +123,31 @@ public class BooleanFilterTests {
         }
     }
 
+    @Test
+    void shouldBooleanFilterRangeDate() throws InterruptedException {
+        // In a try-block, to make sure we close the driver after the test
+        try(Driver driver = GraphDatabase.driver( neo4j.boltURI() , Config.builder().withoutEncryption().build())) {
+            // Given I've started Neo4j with the procedure
+            //       which my 'neo4j' rule above does.
+            Session session = driver.session();
+
+            session.run("CREATE INDEX ON :Order(ordered_date)");
+            // Wait a few seconds to make sure index is populated
+            TimeUnit.SECONDS.sleep(3);
+
+
+            // When I use the procedure
+            Result result = session.run( "CALL com.maxdemarzi.boolean.filter('Order', {not:false, and:[{property: 'ordered_date', values: ['(2019-01-01,]'], not: false}]});");
+
+            // Then I should get what I expect
+            Record record = result.single();
+            assertEquals(1000L, record.get("size").asLong());
+            assertTrue(record.get("size").asLong() > 0);
+            ArrayList<Node> results = new ArrayList<>(record.get("nodes").asList(Value::asNode));
+            assertEquals(50, results.size());
+        }
+    }
+
     private static final String MODEL_STATEMENT = "WITH  " +
             "[\"Unfulfilled\", \"Scheduled\", \"Shipped\", \"Shipped\", \"Shipped\", \"Shipped\", \"Returned\"] AS statuses, " +
             "[\"Warehouse 1\",\"Warehouse 2\",\"Warehouse 3\",\"Warehouse 3\",\"Warehouse 3\"] AS warehouses, " +

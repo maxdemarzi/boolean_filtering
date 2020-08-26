@@ -18,10 +18,15 @@ In the "neo4j.conf" file inside the Neo4j/conf folder add this line:
 
     dbms.security.procedures.unrestricted=com.maxdemarzi.*
 
+You will need to create a single property index on any property you intend to use in a Range Query.
+You should also create an index on any property you will use for a Contains query.
+
 Stored Procedures:
 
     // YIELD size, nodes 
     CALL com.maxdemarzi.boolean.filter(label, query, limit, offset); 
+       
+    
     
     // One Filter
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
@@ -41,6 +46,11 @@ Stored Procedures:
     // Range Filter 19.99 < amount
     CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
             {property: 'amount', values: ['(19.99,]'], not: false}
+    ]}, 10)
+    
+    // Range Filter 2019-01-01 < ordered_date
+    CALL com.maxdemarzi.boolean.filter("Order", {not:false, and:[
+            {property: 'ordered_date', values: ['(2019-01-01,]'], not: false}
     ]}, 10)
     
     // Multiple Filters
